@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUN_VERSION: 1.3.9
+
+jobs:
+  quality:
+    name: Quality and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Build
+        run: bun run build
+
+      - name: Upload production bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermes-ui-dist-${{ github.sha }}
+          path: app/dist
+          if-no-files-found: error
+          retention-days: 7
+
+  tests:
+    name: Tests — no new failures
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run Vitest and capture JSON report
+        id: vitest
+        shell: bash
+        run: |
+          set +e
+          bun x vitest run --environment jsdom --reporter=json --outputFile=vitest-report.json
+          vitest_exit=$?
+          echo "vitest_exit=$vitest_exit" >> "$GITHUB_OUTPUT"
+          set -e
+          if [[ "$vitest_exit" -ne 0 && "$vitest_exit" -ne 1 ]]; then
+            exit "$vitest_exit"
+          fi
+          test -s vitest-report.json
+
+      - name: Reject failures outside the recorded baseline
+        run: bun scripts/check-test-baseline.ts vitest-report.json test-baseline.json
+
+      - name: Upload Vitest report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-report-${{ github.sha }}
+          path: app/vitest-report.json
+          if-no-files-found: warn
+          retention-days: 14
