@@ -10,10 +10,10 @@
   },
   "scripts": {
     "dev": "vite --port 5174",
-    "build": "tsc -p . --noEmit && vite build",
-    "typecheck": "tsc -p . --noEmit",
-    "lint": "eslint src/",
-    "lint:fix": "eslint src/ --fix",
+    "build": "bun run typecheck && vite build",
+    "typecheck": "tsc -p . --noEmit && tsc -p tsconfig.scripts.json --noEmit",
+    "lint": "eslint src/ scripts/",
+    "lint:fix": "eslint src/ scripts/ --fix",
     "fmt": "prettier --write 'src/**/*.{ts,tsx}' 'vite.config.ts'",
     "test:ui": "vitest run --environment jsdom",
     "preview": "vite preview --port 4174"

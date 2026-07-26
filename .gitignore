@@ -8,6 +8,7 @@ app/dev-dist/
 # Vite / tooling caches
 .vite/
 *.tsbuildinfo
+app/vitest-report.json
 
 # Logs
 *.log
