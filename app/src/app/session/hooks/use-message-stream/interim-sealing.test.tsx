@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClientSessionState } from '@/app/types'
 import { chatMessageText } from '@/lib/chat-messages'
 import { createClientSessionState } from '@/lib/chat-runtime'
+import { $compactingSessions } from '@/store/compaction'
 import type { RpcEvent } from '@/types/hermes'
 
 import { useMessageStream } from './index'
@@ -64,6 +65,7 @@ function assistantMessages(): string[] {
 describe('message.interim sealing', () => {
   beforeEach(() => {
     handleEvent = null
+    $compactingSessions.set({})
   })
 
   afterEach(() => {
@@ -88,5 +90,16 @@ describe('message.interim sealing', () => {
     emit('message.complete', { text: 'partial answer with detail', response_previewed: true })
 
     expect(assistantMessages()).toEqual(['partial answer with detail'])
+  })
+
+  it('clears the compacting indicator when interim output proves the turn resumed', async () => {
+    await mountStream()
+    emit('status.update', { kind: 'compacting' })
+
+    expect($compactingSessions.get()[SID]).toBe(true)
+
+    emit('message.interim', { text: 'Back from compaction' })
+
+    expect($compactingSessions.get()[SID]).toBeUndefined()
   })
 })
