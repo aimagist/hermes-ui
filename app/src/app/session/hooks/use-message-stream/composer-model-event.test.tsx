@@ -3,8 +3,6 @@ import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { useEffect, useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ClientSessionState } from '@/app/types'
-import { createClientSessionState } from '@/lib/chat-runtime'
 import {
   $currentModel,
   $currentProvider,
@@ -13,30 +11,34 @@ import {
 } from '@/store/session'
 import type { RpcEvent } from '@/types/hermes'
 
+import { useSessionStateCache } from '../use-session-state-cache'
+
 import { useMessageStream } from './index'
 
+const SID = 'session-1'
 let handleEvent: ((event: RpcEvent) => void) | null = null
 
 function Harness() {
-  const activeSessionIdRef = useRef<string | null>(null)
-  const sessionStateByRuntimeIdRef = useRef(new Map<string, ClientSessionState>())
+  const busyRef = useRef(false)
   const queryClientRef = useRef(new QueryClient())
 
+  const cache = useSessionStateCache({
+    activeSessionId: SID,
+    busyRef,
+    selectedStoredSessionId: null,
+    setAwaitingResponse: vi.fn(),
+    setBusy: vi.fn(),
+    setMessages: vi.fn()
+  })
+
   const stream = useMessageStream({
-    activeSessionIdRef,
+    activeSessionIdRef: cache.activeSessionIdRef,
     hydrateFromStoredSession: vi.fn(async () => undefined),
     queryClient: queryClientRef.current,
     refreshHermesConfig: vi.fn(async () => undefined),
     refreshSessions: vi.fn(async () => undefined),
-    sessionStateByRuntimeIdRef,
-    updateSessionState: (sessionId, updater) => {
-      const current = sessionStateByRuntimeIdRef.current.get(sessionId) ?? createClientSessionState()
-      const next = updater(current)
-
-      sessionStateByRuntimeIdRef.current.set(sessionId, next)
-
-      return next
-    }
+    sessionStateByRuntimeIdRef: cache.sessionStateByRuntimeIdRef,
+    updateSessionState: cache.updateSessionState
   })
 
   useEffect(() => {
@@ -50,7 +52,7 @@ describe('session.info composer model routing', () => {
   beforeEach(() => {
     handleEvent = null
     setCurrentModel('deepseek-v4-flash')
-    setCurrentProvider('deepseek')
+    setCurrentProvider('openrouter')
   })
 
   afterEach(() => {
@@ -67,11 +69,12 @@ describe('session.info composer model routing', () => {
     act(() =>
       handleEvent!({
         payload: { model: 'deepseek-chat', provider: 'deepseek' },
+        session_id: SID,
         type: 'session.info'
       })
     )
 
     expect($currentModel.get()).toBe('deepseek-v4-flash')
-    expect($currentProvider.get()).toBe('deepseek')
+    expect($currentProvider.get()).toBe('openrouter')
   })
 })

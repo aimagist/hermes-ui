@@ -86,10 +86,29 @@ describe('message.interim sealing', () => {
   it('settles a previewed final response onto its interim bubble', async () => {
     await mountStream()
     emit('message.start')
+    emit('message.delta', { text: 'partial answer' })
     emit('message.interim', { text: 'partial answer', already_streamed: true })
     emit('message.complete', { text: 'partial answer with detail', response_previewed: true })
 
     expect(assistantMessages()).toEqual(['partial answer with detail'])
+  })
+
+  it('deduplicates an identical final when it confirms the previewed response', async () => {
+    await mountStream()
+    emit('message.start')
+    emit('message.interim', { text: 'identical answer', already_streamed: true })
+    emit('message.complete', { text: 'identical answer', response_previewed: true })
+
+    expect(assistantMessages()).toEqual(['identical answer'])
+  })
+
+  it('preserves an identical final as a separate response without the preview flag', async () => {
+    await mountStream()
+    emit('message.start')
+    emit('message.interim', { text: 'identical answer', already_streamed: true })
+    emit('message.complete', { text: 'identical answer' })
+
+    expect(assistantMessages()).toEqual(['identical answer', 'identical answer'])
   })
 
   it('clears the compacting indicator when interim output proves the turn resumed', async () => {

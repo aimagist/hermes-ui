@@ -23,6 +23,8 @@ import { followActiveSessionCwd } from '@/store/projects'
 import { clearAllPrompts, setApprovalRequest, setSecretRequest, setSudoRequest } from '@/store/prompts'
 import {
   $currentCwd,
+  $currentModel,
+  $currentProvider,
   setCurrentBranch,
   setCurrentCwd,
   setCurrentFastMode,
@@ -147,6 +149,16 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
         const modelChanged = typeof payload?.model === 'string'
         const providerChanged = typeof payload?.provider === 'string'
         const runningChanged = typeof payload?.running === 'boolean'
+        const selectedModel = $currentModel.get()
+        const selectedProvider = $currentProvider.get()
+
+        const cachedStatePatch = isActiveEvent
+          ? {
+              ...statePatch,
+              ...(modelChanged && selectedModel ? { model: selectedModel } : {}),
+              ...(providerChanged && selectedProvider ? { provider: selectedProvider } : {})
+            }
+          : statePatch
 
         if (apply) {
           if (typeof payload?.cwd === 'string') {
@@ -194,9 +206,9 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
         if (sessionId && hasStatePatch) {
           updateSessionState(sessionId, state => ({
             ...state,
-            ...statePatch,
-            branch: statePatch.branch ?? state.branch,
-            cwd: statePatch.cwd ?? state.cwd
+            ...cachedStatePatch,
+            branch: cachedStatePatch.branch ?? state.branch,
+            cwd: cachedStatePatch.cwd ?? state.cwd
           }))
         }
 
