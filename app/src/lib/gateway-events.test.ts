@@ -12,6 +12,7 @@ describe('gateway event routing', () => {
     // These must NOT be dropped when unscoped — they are the focused turn's own
     // output, and dropping them loses the live response until a refetch (#42178).
     expect(gatewayEventRequiresSessionId('message.delta')).toBe(false)
+    expect(gatewayEventRequiresSessionId('message.interim')).toBe(false)
     expect(gatewayEventRequiresSessionId('message.complete')).toBe(false)
     expect(gatewayEventRequiresSessionId('reasoning.delta')).toBe(false)
     expect(gatewayEventRequiresSessionId('tool.start')).toBe(false)
@@ -52,11 +53,24 @@ describe('gateway event routing', () => {
       sessionId: 'session-a'
     })
 
+    const interim = resolveGatewayEventSessionId({
+      activeSessionId: 'session-b',
+      eventType: 'message.interim',
+      explicitSessionId: '',
+      unscopedStreamSessionId: delta.nextUnscopedStreamSessionId
+    })
+
+    expect(interim).toEqual({
+      drop: false,
+      nextUnscopedStreamSessionId: 'session-a',
+      sessionId: 'session-a'
+    })
+
     const completed = resolveGatewayEventSessionId({
       activeSessionId: 'session-b',
       eventType: 'message.complete',
       explicitSessionId: '',
-      unscopedStreamSessionId: delta.nextUnscopedStreamSessionId
+      unscopedStreamSessionId: interim.nextUnscopedStreamSessionId
     })
 
     expect(completed).toEqual({
