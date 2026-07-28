@@ -23,12 +23,12 @@ import { followActiveSessionCwd } from '@/store/projects'
 import { clearAllPrompts, setApprovalRequest, setSecretRequest, setSudoRequest } from '@/store/prompts'
 import {
   $currentCwd,
+  $currentModel,
+  $currentProvider,
   setCurrentBranch,
   setCurrentCwd,
   setCurrentFastMode,
-  setCurrentModel,
   setCurrentPersonality,
-  setCurrentProvider,
   setCurrentReasoningEffort,
   setCurrentServiceTier,
   setCurrentUsage,
@@ -47,6 +47,20 @@ import type { ClientSessionState } from '../../../types'
 
 import { hasSessionInfoStatePatch, sessionInfoStatePatch, SUBAGENT_EVENT_TYPES, toTodoPayload } from './utils'
 
+const COMPACTION_RESUME_EVENT_TYPES = new Set([
+  'message.delta',
+  'message.interim',
+  'thinking.delta',
+  'reasoning.delta',
+  'reasoning.available',
+  'moa.reference',
+  'moa.aggregating',
+  'tool.start',
+  'tool.progress',
+  'tool.generating',
+  'tool.complete'
+])
+
 interface GatewayEventDeps {
   activeSessionIdRef: MutableRefObject<string | null>
   compactedTurnRef: MutableRefObject<Set<string>>
@@ -54,9 +68,10 @@ interface GatewayEventDeps {
   nativeSubagentSessionsRef: MutableRefObject<Set<string>>
   appendAssistantDelta: (sessionId: string, delta: string) => void
   appendReasoningDelta: (sessionId: string, delta: string, replace?: boolean) => void
-  completeAssistantMessage: (sessionId: string, text: string) => void
+  completeAssistantMessage: (sessionId: string, text: string, responsePreviewed?: boolean) => void
   failAssistantMessage: (sessionId: string, errorMessage: string) => void
   flushQueuedDeltas: (sessionId?: string) => void
+  finalizeInterimAssistantMessage: (sessionId: string, text: string) => void
   queryClient: QueryClient
   refreshHermesConfig: () => Promise<void>
   sessionInterrupted: (sessionId: string) => boolean
@@ -84,6 +99,7 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
     nativeSubagentSessionsRef,
     completeAssistantMessage,
     failAssistantMessage,
+    finalizeInterimAssistantMessage,
     flushQueuedDeltas,
     queryClient,
     refreshHermesConfig,
@@ -115,6 +131,13 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
       const sessionId = route.sessionId
       const isActiveEvent = !!sessionId && sessionId === activeSessionIdRef.current
 
+      // Mid-turn compaction does not emit another message.start. The first
+      // model output or tool event proves summarization finished and streaming
+      // resumed, so retire the phase label without waiting for turn completion.
+      if (sessionId && COMPACTION_RESUME_EVENT_TYPES.has(event.type) && compactedTurnRef.current.has(sessionId)) {
+        setSessionCompacting(sessionId, false)
+      }
+
       if (event.type === 'gateway.ready') {
         return
       } else if (event.type === 'session.info') {
@@ -126,16 +149,18 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
         const modelChanged = typeof payload?.model === 'string'
         const providerChanged = typeof payload?.provider === 'string'
         const runningChanged = typeof payload?.running === 'boolean'
+        const selectedModel = $currentModel.get()
+        const selectedProvider = $currentProvider.get()
+
+        const cachedStatePatch = isActiveEvent
+          ? {
+              ...statePatch,
+              ...(modelChanged && selectedModel ? { model: selectedModel } : {}),
+              ...(providerChanged && selectedProvider ? { provider: selectedProvider } : {})
+            }
+          : statePatch
 
         if (apply) {
-          if (modelChanged) {
-            setCurrentModel(payload!.model || '')
-          }
-
-          if (providerChanged) {
-            setCurrentProvider(payload!.provider || '')
-          }
-
           if (typeof payload?.cwd === 'string') {
             // The active session's agent can relocate itself (new repo/worktree
             // via the terminal). When the SAME active session's cwd actually
@@ -181,9 +206,9 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
         if (sessionId && hasStatePatch) {
           updateSessionState(sessionId, state => ({
             ...state,
-            ...statePatch,
-            branch: statePatch.branch ?? state.branch,
-            cwd: statePatch.cwd ?? state.cwd
+            ...cachedStatePatch,
+            branch: cachedStatePatch.branch ?? state.branch,
+            cwd: cachedStatePatch.cwd ?? state.cwd
           }))
         }
 
@@ -260,6 +285,7 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
           awaitingResponse: true,
           sawAssistantPayload: false,
           interrupted: false,
+          interimBoundaryPending: false,
           turnStartedAt: Date.now()
         }))
 
@@ -269,6 +295,15 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
       } else if (event.type === 'message.delta') {
         if (sessionId) {
           appendAssistantDelta(sessionId, coerceGatewayText(payload?.text))
+        }
+      } else if (event.type === 'message.interim') {
+        if (sessionId) {
+          flushQueuedDeltas(sessionId)
+          const text = coerceGatewayText(payload?.text)
+
+          if (text) {
+            finalizeInterimAssistantMessage(sessionId, text)
+          }
         }
       } else if (event.type === 'thinking.delta') {
         // thinking.delta carries the kawaii spinner status (face + verb from
@@ -336,7 +371,7 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
         playCompletionSound()
 
         const finalText = coerceGatewayText(payload?.text) || coerceGatewayText(payload?.rendered)
-        completeAssistantMessage(sessionId, finalText)
+        completeAssistantMessage(sessionId, finalText, payload?.response_previewed)
 
         if (isActiveEvent) {
           setTurnStartedAt(null)
@@ -658,6 +693,7 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
       compactedTurnRef,
       completeAssistantMessage,
       failAssistantMessage,
+      finalizeInterimAssistantMessage,
       flushQueuedDeltas,
       lastCwdInfoSessionRef,
       nativeSubagentSessionsRef,

@@ -24,9 +24,20 @@ Keep local modifications minimal and centralized in `src/web-bridge/` so upstrea
 This is the running watermark for incremental upstream syncs.
 When you sync, always diff upstream `apps/desktop/src` + `apps/shared/src` from the **Last synced commit** below forward, port the web-applicable changes, then bump the watermark.
 
-- **Last synced upstream commit:** `f0aae14c684a84cd1eeca88339238406c30f3ed7` (2026-07-20).
-- **Last sync date:** 2026-07-20.
-- **Baseline before this sync:** `56a8e81` (the original extraction).
+- **Last reviewed stable release:** `v2026.7.20` / Hermes `0.19.0`, commit `3ef6bbd201263d354fd83ec55b3c306ded2eb72a`.
+- **Last sync date:** 2026-07-28.
+- **Baseline before this sync:** `f0aae14c684a84cd1eeca88339238406c30f3ed7` (2026-07-20).
+
+### 2026-07-28 - targeted critical sync through stable `v2026.7.20`
+
+Reviewed the upstream range `f0aae14..3ef6bbd` and ported four web-compatible runtime fixes:
+
+- nonfatal session/sidebar refresh during gateway boot (`4ef92d2`);
+- readiness polling that preserves the last valid state and rejects stale responses (`8f33e39`);
+- sticky active composer model/provider metadata across `session.info` heartbeats (`3e6cead`);
+- routed interim assistant messages, final-response deduplication, and compaction-resume state (`c363db8`).
+
+This was a targeted compatibility pass, not a claim that every file now matches the stable tag. Backend-only protocol producers, Electron/Ink/TUI/native code, audio P2 work, quiet-session liveness, and the previously deferred `contrib`/plugin and `store/session-states` refactors remain excluded.
 
 ### 2026-07-20 - partial sync of the 2026-06-29 -> 2026-07-20 window (merged desktop PRs)
 

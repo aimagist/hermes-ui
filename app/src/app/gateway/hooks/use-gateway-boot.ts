@@ -400,7 +400,11 @@ export function useGatewayBoot({
           message: translateNow('boot.steps.loadingSessions'),
           progress: 99
         })
-        await callbacksRef.current.refreshSessions()
+        // The WebSocket is already open. A sidebar fetch failure must leave the
+        // chat usable with an empty list instead of bricking the entire boot.
+        await callbacksRef.current.refreshSessions().catch(() => {
+          setSessionsLoading(false)
+        })
         completeDesktopBoot()
         bootCompleted = true
       } catch (err) {

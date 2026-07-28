@@ -105,13 +105,13 @@ function fakeDesktop() {
   }
 }
 
-function Harness() {
+function Harness({ refreshSessions }: { refreshSessions?: () => Promise<void> } = {}) {
   useGatewayBoot({
     handleGatewayEvent: () => undefined,
     onConnectionReady: () => undefined,
     onGatewayReady: () => undefined,
     refreshHermesConfig: async () => undefined,
-    refreshSessions: async () => undefined
+    refreshSessions: refreshSessions ?? (async () => undefined)
   })
 
   return null
@@ -266,5 +266,20 @@ describe('useGatewayBoot remote reconnect loop (real hook, fake socket)', () => 
 
     expect($gatewayState.get()).toBe('open')
     expect($desktopBoot.get().error).toBeNull()
+  })
+
+  it('keeps boot usable when the session-list fetch fails after the socket opens', async () => {
+    const refreshSessions = vi.fn(async () => {
+      throw new Error('session sidebar unavailable')
+    })
+
+    render(<Harness refreshSessions={refreshSessions} />)
+    await flushAsync()
+
+    expect(refreshSessions).toHaveBeenCalled()
+    expect($gatewayState.get()).toBe('open')
+    expect($desktopBoot.get().error).toBeNull()
+    expect($desktopBoot.get().visible).toBe(false)
+    expect($desktopBoot.get().phase).toBe('renderer.ready')
   })
 })

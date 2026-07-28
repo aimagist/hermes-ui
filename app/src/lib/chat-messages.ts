@@ -87,6 +87,8 @@ export type GatewayEventPayload = {
   label?: string
   index?: number
   aggregator?: string
+  /** message.complete: final content was already shown through message.interim. */
+  response_previewed?: boolean
 }
 
 export function textPart(text: string): ChatMessagePart {
@@ -134,6 +136,30 @@ export function chatMessageText(message: ChatMessage): string {
     .filter((part): part is Extract<ChatMessagePart, { type: 'text' }> => part.type === 'text')
     .map(part => part.text)
     .join('')
+}
+
+const normalizeWs = (value: string) => value.replace(/\s+/g, ' ').trim()
+
+/** Replace streamed text with the authoritative final while preserving tools,
+ * media, and reasoning that the final response does not fully restate. */
+export function mergeFinalAssistantText(parts: ChatMessagePart[], finalText: string): ChatMessagePart[] {
+  const normalizedFinal = normalizeWs(finalText)
+
+  const kept = parts.filter(part => {
+    if (part.type === 'text') {
+      return false
+    }
+
+    if (part.type !== 'reasoning' || !normalizedFinal) {
+      return true
+    }
+
+    const reasoning = normalizeWs(part.text)
+
+    return !(reasoning && normalizedFinal.startsWith(reasoning))
+  })
+
+  return finalText ? [...kept, assistantTextPart(finalText)] : kept
 }
 
 const ATTACHED_CONTEXT_MARKER_RE = /(?:^|\n)--- Attached Context ---\s*\n/
